@@ -1,14 +1,14 @@
 """
 Minimal MSSQL MCP Server for Claude Desktop
-Uses pytds (pure Python TDS) - no ODBC driver needed, handles Azure SQL encryption natively.
+Uses pyodbc with ODBC Driver 17 for SQL Server - handles Azure SQL encryption natively.
 
 Setup:
-  pip install pytds mcp
+  pip install pyodbc mcp
   
 Config (claude_desktop_config.json):
   "mssql": {
-    "command": "python",
-    "args": ["C:\\path\\to\\server.py"],
+    "command": "C:\\Users\\ryan.bartusek\\AppData\\Local\\anaconda3\\python.exe",
+    "args": ["C:\\github\\mssql-mcp\\server.py"],
     "env": {
       "MSSQL_SERVER": "your-server.database.windows.net",
       "MSSQL_DATABASE": "your_database",
@@ -20,9 +20,8 @@ Config (claude_desktop_config.json):
 """
 
 import os
-import sys
 import json
-import pytds
+import pyodbc
 from mcp.server.fastmcp import FastMCP
 
 server = FastMCP("mssql-server")
@@ -30,15 +29,15 @@ server = FastMCP("mssql-server")
 
 def get_connection():
     """Create a new database connection."""
-    return pytds.connect(
-        server=os.environ["MSSQL_SERVER"],
-        database=os.environ["MSSQL_DATABASE"],
-        user=os.environ["MSSQL_USER"],
-        password=os.environ["MSSQL_PASSWORD"],
-        port=int(os.environ.get("MSSQL_PORT", "1433")),
-        as_dict=True,
-        autocommit=True,
+    conn_str = (
+        f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+        f"SERVER={os.environ['MSSQL_SERVER']},{os.environ.get('MSSQL_PORT', '1433')};"
+        f"DATABASE={os.environ['MSSQL_DATABASE']};"
+        f"UID={os.environ['MSSQL_USER']};"
+        f"PWD={os.environ['MSSQL_PASSWORD']};"
+        f"Encrypt=yes;TrustServerCertificate=no;"
     )
+    return pyodbc.connect(conn_str, autocommit=True)
 
 
 @server.tool()
@@ -49,16 +48,14 @@ def execute_sql(query: str) -> str:
         cursor = conn.cursor()
         cursor.execute(query)
 
-        # Check if query returns results
         if cursor.description:
             columns = [desc[0] for desc in cursor.description]
             rows = cursor.fetchall()
-            # Convert rows to list of dicts, handling non-serializable types
             results = []
             for row in rows:
                 clean_row = {}
-                for col in columns:
-                    val = row[col]
+                for i, col in enumerate(columns):
+                    val = row[i]
                     if val is None:
                         clean_row[col] = None
                     elif isinstance(val, (int, float, bool)):
